@@ -12,6 +12,8 @@ from surfaces.infinite_plane import InfinitePlane
 from surfaces.sphere import Sphere
 from utils import clamp_color01, color_to_uint8
 
+from hit import Hit
+
 SceneObject = Union[Material, Sphere, InfinitePlane, Cube, Light]
 
 
@@ -28,23 +30,41 @@ def parse_scene_file(file_path: str) -> Tuple[Camera | None, SceneSettings | Non
             obj_type = parts[0]
             params = [float(p) for p in parts[1:]]
             if obj_type == "cam":
-                camera = Camera(params[:3], params[3:6], params[6:9], params[9], params[10])
+                camera = Camera(
+                    np.asarray(params[:3], dtype=float),
+                    np.asarray(params[3:6], dtype=float),
+                    np.asarray(params[6:9], dtype=float),
+                    params[9],
+                    params[10],
+                )
             elif obj_type == "set":
-                scene_settings = SceneSettings(params[:3], params[3], params[4])
+                scene_settings = SceneSettings(np.asarray(params[:3], dtype=float), params[3], params[4])
             elif obj_type == "mtl":
-                material = Material(params[:3], params[3:6], params[6:9], params[9], params[10])
+                material = Material(
+                    np.asarray(params[:3], dtype=float),
+                    np.asarray(params[3:6], dtype=float),
+                    np.asarray(params[6:9], dtype=float),
+                    params[9],
+                    params[10],
+                )
                 objects.append(material)
             elif obj_type == "sph":
-                sphere = Sphere(params[:3], params[3], int(params[4]))
+                sphere = Sphere(np.asarray(params[:3], dtype=float), params[3], int(params[4]))
                 objects.append(sphere)
             elif obj_type == "pln":
-                plane = InfinitePlane(params[:3], params[3], int(params[4]))
+                plane = InfinitePlane(np.asarray(params[:3], dtype=float), params[3], int(params[4]))
                 objects.append(plane)
             elif obj_type == "box":
-                cube = Cube(params[:3], params[3], int(params[4]))
+                cube = Cube(np.asarray(params[:3], dtype=float), params[3], int(params[4]))
                 objects.append(cube)
             elif obj_type == "lgt":
-                light = Light(params[:3], params[3:6], params[6], params[7], params[8])
+                light = Light(
+                    np.asarray(params[:3], dtype=float),
+                    np.asarray(params[3:6], dtype=float),
+                    params[6],
+                    params[7],
+                    params[8],
+                )
                 objects.append(light)
             else:
                 raise ValueError("Unknown object type: {}".format(obj_type))
@@ -56,12 +76,40 @@ def save_image(image_array: np.ndarray, output_path: str) -> None:
     image.save(output_path)
 
 
-def render_camera_rays_debug(camera: Camera, width: int, height: int) -> np.ndarray:
+def render_intersections_debug(
+    camera: Camera,
+    surfaces: List[Union[Sphere, InfinitePlane, Cube]],
+    materials: List[Material],
+    background_color: np.ndarray,
+    width: int,
+    height: int,
+) -> np.ndarray:
     image = np.zeros((height, width, 3), dtype=float)
+    bg = np.asarray(background_color, dtype=float)
+
     for i in range(height):
         for j in range(width):
             ray = camera.generate_ray(i, j, width, height)
-            image[i, j, :] = (ray.direction + 1.0) * 0.5
+
+            best_hit: Hit | None = None
+            for surface in surfaces:
+                hit = surface.intersect(ray)
+                if hit is None:
+                    continue
+                if best_hit is None or hit.t < best_hit.t:
+                    best_hit = hit
+
+            if best_hit is None:
+                image[i, j, :] = bg
+                continue
+
+            # Prefer material diffuse color if available & otherwise show normal as color.
+            mat_idx = best_hit.material_index
+            if 1 <= mat_idx <= len(materials):
+                image[i, j, :] = materials[mat_idx - 1].diffuse_color
+            else:
+                image[i, j, :] = (best_hit.normal + 1.0) * 0.5
+
     return clamp_color01(image)
 
 
@@ -81,9 +129,21 @@ def main() -> None:
     if scene_settings is None:
         raise ValueError("Scene file is missing scene settings ('set' line)")
 
-    # Debug render: visualize ray directions as colors (R,G,B) = (dx,dy,dz) mapped to [0..1]
-    # This validates camera basis + pixel-to-screen mapping before implementing intersections.
-    image_array = render_camera_rays_debug(camera, args.width, args.height)
+    materials: List[Material] = [obj for obj in objects if isinstance(obj, Material)]
+    surfaces: List[Union[Sphere, InfinitePlane, Cube]] = [
+        obj for obj in objects if isinstance(obj, (Sphere, InfinitePlane, Cube))
+    ]
+
+    # Debug render: show closest-hit intersection results.
+    # Hits are colored by material diffuse color; misses use the scene background.
+    image_array = render_intersections_debug(
+        camera,
+        surfaces,
+        materials,
+        scene_settings.background_color,
+        args.width,
+        args.height,
+    )
     save_image(image_array, args.output_image)
 
 
