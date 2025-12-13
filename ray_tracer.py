@@ -1,6 +1,7 @@
 import argparse
 from PIL import Image
 import numpy as np
+from typing import List, Tuple, Union
 
 from camera import Camera
 from light import Light
@@ -9,12 +10,15 @@ from scene_settings import SceneSettings
 from surfaces.cube import Cube
 from surfaces.infinite_plane import InfinitePlane
 from surfaces.sphere import Sphere
+from utils import clamp_color01, color_to_uint8
+
+SceneObject = Union[Material, Sphere, InfinitePlane, Cube, Light]
 
 
-def parse_scene_file(file_path):
-    objects = []
-    camera = None
-    scene_settings = None
+def parse_scene_file(file_path: str) -> Tuple[Camera | None, SceneSettings | None, List[SceneObject]]:
+    objects: List[SceneObject] = []
+    camera: Camera | None = None
+    scene_settings: SceneSettings | None = None
     with open(file_path, 'r') as f:
         for line in f:
             line = line.strip()
@@ -47,14 +51,21 @@ def parse_scene_file(file_path):
     return camera, scene_settings, objects
 
 
-def save_image(image_array):
-    image = Image.fromarray(np.uint8(image_array))
-
-    # Save the image to a file
-    image.save("scenes/Spheres.png")
+def save_image(image_array: np.ndarray, output_path: str) -> None:
+    image = Image.fromarray(color_to_uint8(image_array))
+    image.save(output_path)
 
 
-def main():
+def render_camera_rays_debug(camera: Camera, width: int, height: int) -> np.ndarray:
+    image = np.zeros((height, width, 3), dtype=float)
+    for i in range(height):
+        for j in range(width):
+            ray = camera.generate_ray(i, j, width, height)
+            image[i, j, :] = (ray.direction + 1.0) * 0.5
+    return clamp_color01(image)
+
+
+def main() -> None:
     parser = argparse.ArgumentParser(description='Python Ray Tracer')
     parser.add_argument('scene_file', type=str, help='Path to the scene file')
     parser.add_argument('output_image', type=str, help='Name of the output image file')
@@ -65,13 +76,15 @@ def main():
     # Parse the scene file
     camera, scene_settings, objects = parse_scene_file(args.scene_file)
 
-    # TODO: Implement the ray tracer
+    if camera is None:
+        raise ValueError("Scene file is missing a camera ('cam' line)")
+    if scene_settings is None:
+        raise ValueError("Scene file is missing scene settings ('set' line)")
 
-    # Dummy result
-    image_array = np.zeros((500, 500, 3))
-
-    # Save the output image
-    save_image(image_array)
+    # Debug render: visualize ray directions as colors (R,G,B) = (dx,dy,dz) mapped to [0..1]
+    # This validates camera basis + pixel-to-screen mapping before implementing intersections.
+    image_array = render_camera_rays_debug(camera, args.width, args.height)
+    save_image(image_array, args.output_image)
 
 
 if __name__ == '__main__':

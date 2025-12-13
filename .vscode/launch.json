@@ -1,0 +1,16 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run ray_tracer (pool scene)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/ray_tracer.py",
+      "console": "integratedTerminal",
+      "args": [
+        "${workspaceFolder}/scenes/pool.txt",
+        "${workspaceFolder}/output/pool.png"
+      ]
+    }
+  ]
+}

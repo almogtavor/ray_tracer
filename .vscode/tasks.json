@@ -1,0 +1,16 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Run ray_tracer (pool scene)",
+      "type": "shell",
+      "command": "${workspaceFolder}/venv/bin/python",
+      "args": [
+        "${workspaceFolder}/ray_tracer.py",
+        "${workspaceFolder}/scenes/pool.txt",
+        "${workspaceFolder}/output/pool.png"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}

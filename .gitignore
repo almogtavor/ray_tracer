@@ -1,2 +1,10 @@
 *.pyc
 venv
+__pycache__/
+.env
+.DS_Store
+.idea/
+node_modules/
+dist/
+build/
+*.log
