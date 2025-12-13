@@ -11,6 +11,7 @@ from surfaces.cube import Cube
 from surfaces.infinite_plane import InfinitePlane
 from surfaces.sphere import Sphere
 from utils import clamp_color01, color_to_uint8
+from utils import normalize_vector, vector_dot, reflect_vector
 
 from hit import Hit
 
@@ -113,6 +114,84 @@ def render_intersections_debug(
     return clamp_color01(image)
 
 
+def compute_phong_shading(
+    hit: Hit,
+    material: Material,
+    lights: List[Light],
+    camera_position: np.ndarray,
+) -> np.ndarray:
+    """Compute diffuse + specular (Phong) shading for a hit point. No shadows."""
+    hit_point = hit.point
+    surface_normal = hit.normal
+    view_direction = normalize_vector(camera_position - hit_point)
+
+    total_color = np.zeros(3, dtype=float)
+
+    for light in lights:
+        light_direction = normalize_vector(light.position - hit_point)
+
+        # Diffuse component: kd * light_color * max(dot(N, L), 0)
+        n_dot_l = max(vector_dot(surface_normal, light_direction), 0.0)
+        diffuse = material.diffuse_color * light.color * n_dot_l
+
+        # Specular component (Phong): ks * light_color * spec_intensity * max(dot(R, V), 0)^shininess
+        # R = reflect(-L, N)
+        reflect_direction = reflect_vector(-light_direction, surface_normal)
+        r_dot_v = max(vector_dot(reflect_direction, view_direction), 0.0)
+        specular = (
+            material.specular_color
+            * light.color
+            * light.specular_intensity
+            * (r_dot_v ** material.shininess)
+        )
+
+        total_color += diffuse + specular
+
+    return total_color
+
+
+def render_with_phong_shading(
+    camera: Camera,
+    surfaces: List[Union[Sphere, InfinitePlane, Cube]],
+    materials: List[Material],
+    lights: List[Light],
+    background_color: np.ndarray,
+    width: int,
+    height: int,
+) -> np.ndarray:
+    """Render the scene with Phong shading (diffuse + specular). No shadows yet."""
+    image = np.zeros((height, width, 3), dtype=float)
+    bg = np.asarray(background_color, dtype=float)
+
+    for i in range(height):
+        for j in range(width):
+            ray = camera.generate_ray(i, j, width, height)
+
+            best_hit: Hit | None = None
+            for surface in surfaces:
+                hit = surface.intersect(ray)
+                if hit is None:
+                    continue
+                if best_hit is None or hit.t < best_hit.t:
+                    best_hit = hit
+
+            if best_hit is None:
+                image[i, j, :] = bg
+                continue
+
+            mat_idx = best_hit.material_index
+            if 1 <= mat_idx <= len(materials):
+                material = materials[mat_idx - 1]
+                image[i, j, :] = compute_phong_shading(
+                    best_hit, material, lights, camera.position
+                )
+            else:
+                # Fallback: show normal as color
+                image[i, j, :] = (best_hit.normal + 1.0) * 0.5
+
+    return clamp_color01(image)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description='Python Ray Tracer')
     parser.add_argument('scene_file', type=str, help='Path to the scene file')
@@ -133,13 +212,14 @@ def main() -> None:
     surfaces: List[Union[Sphere, InfinitePlane, Cube]] = [
         obj for obj in objects if isinstance(obj, (Sphere, InfinitePlane, Cube))
     ]
+    lights: List[Light] = [obj for obj in objects if isinstance(obj, Light)]
 
-    # Debug render: show closest-hit intersection results.
-    # Hits are colored by material diffuse color; misses use the scene background.
-    image_array = render_intersections_debug(
+    # Render with Phong shading (diffuse + specular). No shadows yet.
+    image_array = render_with_phong_shading(
         camera,
         surfaces,
         materials,
+        lights,
         scene_settings.background_color,
         args.width,
         args.height,
