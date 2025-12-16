@@ -2,7 +2,7 @@ import numpy as np
 
 from hit import Hit
 from ray import Ray
-from utils import EPSILON, normalize_vector, vector_dot
+from utils.vector_operations import EPSILON, normalize_vector, vector_dot
 
 
 class Sphere:

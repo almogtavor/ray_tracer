@@ -1,7 +1,7 @@
 import numpy as np
 
 from ray import Ray
-from utils import vector_cross, normalize_vector
+from utils.vector_operations import vector_cross, normalize_vector
 
 
 class Camera:

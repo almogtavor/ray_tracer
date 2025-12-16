@@ -32,7 +32,7 @@ def vector_cross(a: np.ndarray, b: np.ndarray) -> np.ndarray: #cross product of 
 
 def reflect_vector(I: np.ndarray, N: np.ndarray) -> np.ndarray:
     """Calculates the reflection vector R given the incident vector I and surface normal N.
-       Assumes I points *towards* the surface"""
+       Assumes I points toward the surface"""
     vector_I = np.asarray(I, dtype=float)
     vector_N = np.asarray(N, dtype=float)
     return vector_I - 2.0 * vector_dot(vector_I, vector_N) * vector_N
