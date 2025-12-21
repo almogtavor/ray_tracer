@@ -1,9 +1,7 @@
-from __future__ import annotations
-
 import numpy as np
 
-from typings.hit import Hit
-from typings.ray import Ray
+from hit import Hit
+from ray import Ray
 from utils.vector_operations import EPSILON, normalize_vector, vector_dot
 
 
@@ -12,6 +10,10 @@ class Sphere:
         self.position: np.ndarray = np.asarray(position, dtype=float)
         self.radius: float = float(radius)
         self.material_index: int = int(material_index)
+
+    def aabb(self) -> AABB:
+        radius_vec = np.full(3, self.radius, dtype=float)
+        return AABB(self.position - radius_vec, self.position + radius_vec)
 
     def intersect(self, ray: Ray) -> Hit | None:
         ray_origin = ray.origin
