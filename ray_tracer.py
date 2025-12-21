@@ -11,7 +11,13 @@ from scene_settings import SceneSettings
 from surfaces.cube import Cube
 from surfaces.infinite_plane import InfinitePlane
 from surfaces.sphere import Sphere
-from utils.shadow_utils import build_surface_bvh, compute_soft_shadow_factor, find_closest_hit
+from utils.shadow_utils import (
+    AccelerationSettings,
+    AccelerationType,
+    build_surface_acceleration,
+    compute_soft_shadow_factor,
+    find_closest_hit,
+)
 from utils.vector_operations import clamp_color01, color_to_uint8
 from utils.vector_operations import normalize_vector, vector_dot, reflect_vector, vector_cross, EPSILON
 
@@ -209,11 +215,12 @@ def render_with_full_shading(
     max_recursion: int,
     width: int,
     height: int,
+    accel_settings: AccelerationSettings | None = None,
 ) -> np.ndarray:
     """Render the scene with full ray tracing: Phong shading, soft shadows, reflection, transparency."""
     image = np.zeros((height, width, 3), dtype=float)
     bg = np.asarray(background_color, dtype=float)
-    build_surface_bvh(surfaces)
+    build_surface_acceleration(surfaces, accel_settings)
 
     for i in range(height):
         for j in range(width):
@@ -318,6 +325,31 @@ def main() -> None:
     parser.add_argument('output_image', type=str, help='Name of the output image file')
     parser.add_argument('--width', type=int, default=500, help='Image width')
     parser.add_argument('--height', type=int, default=500, help='Image height')
+    parser.add_argument(
+        '--accel',
+        type=str,
+        choices=[accel.value for accel in AccelerationType],
+        default=AccelerationType.BVH.value,
+        help='Acceleration structure to use for ray intersections (bvh, grid, octree)',
+    )
+    parser.add_argument(
+        '--grid-cells',
+        type=int,
+        default=64,
+        help='Maximum number of uniform grid cells per axis when --accel grid is selected',
+    )
+    parser.add_argument(
+        '--octree-depth',
+        type=int,
+        default=8,
+        help='Maximum octree depth when --accel octree is selected',
+    )
+    parser.add_argument(
+        '--octree-leaf-size',
+        type=int,
+        default=4,
+        help='Maximum primitives per octree leaf when --accel octree is selected',
+    )
     args = parser.parse_args()
 
     # Parse the scene file
@@ -334,6 +366,13 @@ def main() -> None:
     ]
     lights: List[Light] = [obj for obj in objects if isinstance(obj, Light)]
 
+    accel_settings = AccelerationSettings(
+        structure=AccelerationType(args.accel),
+        grid_cells=args.grid_cells,
+        octree_max_depth=args.octree_depth,
+        octree_leaf_size=args.octree_leaf_size,
+    )
+
     # Render with full ray tracing: Phong shading, soft shadows, reflection, transparency
     image_array = render_with_full_shading(
         camera,
@@ -345,6 +384,7 @@ def main() -> None:
         scene_settings.max_recursions,
         args.width,
         args.height,
+        accel_settings,
     )
     save_image(image_array, args.output_image)
 
