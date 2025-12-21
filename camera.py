@@ -1,6 +1,6 @@
 import numpy as np
 
-from ray import Ray
+from typings.ray import Ray
 from utils.vector_operations import vector_cross, normalize_vector
 
 

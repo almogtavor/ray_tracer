@@ -5,8 +5,8 @@ import numpy as np
 from typing import List, Tuple, Union
 
 from camera import Camera
-from light import Light
-from material import Material
+from typings.light import Light
+from typings.material import Material
 from scene_settings import SceneSettings
 from surfaces.cube import Cube
 from surfaces.infinite_plane import InfinitePlane
@@ -82,7 +82,7 @@ def is_occluded(
     light_position: np.ndarray,
     surfaces: List[Union[Sphere, InfinitePlane, Cube]],
 ) -> bool:
-    """Check if a shadow ray from hit_point toward light is blocked by any surface."""
+    """Check if a shadow ray from typings.hit_point toward light is blocked by any surface."""
     shadow_origin = hit_point + surface_normal * EPSILON # to avoid shadow acne
     to_light = light_position - shadow_origin
     distance_to_light = float(np.linalg.norm(to_light))
@@ -111,7 +111,7 @@ def compute_soft_shadow_factor(
             return 0.0
         return 1.0
 
-    # Build plane perpendicular to direction from light to hit point
+    # Build plane perpendicular to direction from typings.light to hit point
     light_to_point = hit_point - light.position
     light_distance = float(np.linalg.norm(light_to_point))
     if light_distance < EPSILON:
@@ -138,7 +138,7 @@ def compute_soft_shadow_factor(
 
     for row in range(shadow_rays_root):
         for col in range(shadow_rays_root):
-            # Cell center offset from light center
+            # Cell center offset from typings.light center
             u_offset = -half_width + (col + 0.5) * cell_size
             v_offset = -half_width + (row + 0.5) * cell_size
 

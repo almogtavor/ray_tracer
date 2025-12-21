@@ -5,8 +5,8 @@ from typing import Iterable, List, Sequence, Tuple
 
 import numpy as np
 
-from hit import Hit
-from ray import Ray
+from typings.hit import Hit
+from typings.ray import Ray
 from utils.vector_operations import EPSILON
 
 
