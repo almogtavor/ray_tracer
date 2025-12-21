@@ -1,19 +1,18 @@
+from __future__ import annotations
 import argparse
 import time
 from PIL import Image
 import numpy as np
 from typing import List, Tuple, Union
-
 from camera import Camera
-from light import Light
-from material import Material
+from typings.light import Light
+from typings.material import Material
 from scene_settings import SceneSettings
 from surfaces.cube import Cube
 from surfaces.infinite_plane import InfinitePlane
 from surfaces.sphere import Sphere
 from utils.vector_operations import clamp_color01, color_to_uint8
 from utils.vector_operations import normalize_vector, vector_dot, reflect_vector, vector_cross, EPSILON
-
 from typings.hit import Hit
 from typings.ray import Ray
 
