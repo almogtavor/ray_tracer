@@ -2,6 +2,7 @@ import numpy as np
 
 from hit import Hit
 from ray import Ray
+from utils.bvh import AABB
 from utils.vector_operations import EPSILON, vector_dot
 
 
@@ -10,6 +11,11 @@ class Cube:
         self.position: np.ndarray = np.asarray(position, dtype=float)
         self.scale: float = float(scale)
         self.material_index: int = int(material_index)
+
+    def aabb(self) -> AABB:
+        half_scale = 0.5 * self.scale
+        half_vec = np.full(3, half_scale, dtype=float)
+        return AABB(self.position - half_vec, self.position + half_vec)
 
     def intersect(self, ray: Ray) -> Hit | None:
         ray_origin = ray.origin

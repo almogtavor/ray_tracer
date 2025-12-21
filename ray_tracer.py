@@ -11,7 +11,7 @@ from scene_settings import SceneSettings
 from surfaces.cube import Cube
 from surfaces.infinite_plane import InfinitePlane
 from surfaces.sphere import Sphere
-from utils.shadow_utils import compute_soft_shadow_factor, find_closest_hit
+from utils.shadow_utils import build_surface_bvh, compute_soft_shadow_factor, find_closest_hit
 from utils.vector_operations import clamp_color01, color_to_uint8
 from utils.vector_operations import normalize_vector, vector_dot, reflect_vector, vector_cross, EPSILON
 
@@ -213,6 +213,7 @@ def render_with_full_shading(
     """Render the scene with full ray tracing: Phong shading, soft shadows, reflection, transparency."""
     image = np.zeros((height, width, 3), dtype=float)
     bg = np.asarray(background_color, dtype=float)
+    build_surface_bvh(surfaces)
 
     for i in range(height):
         for j in range(width):

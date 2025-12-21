@@ -11,25 +11,68 @@ from scene_settings import SceneSettings
 from surfaces.cube import Cube
 from surfaces.infinite_plane import InfinitePlane
 from surfaces.sphere import Sphere
+from utils.bvh import BVHNode, BVHPrimitive, build_bvh
 from utils.vector_operations import clamp_color01, color_to_uint8
 from utils.vector_operations import normalize_vector, vector_dot, reflect_vector, vector_cross, EPSILON
 
 from typings.hit import Hit
 from typings.ray import Ray
 
+_BVH_ROOT: BVHNode | None = None
+_PLANE_SURFACES: List[InfinitePlane] = []
+_CACHED_SURFACES_ID: int | None = None
+
+
+def build_surface_bvh(surfaces: List[Union[Sphere, InfinitePlane, Cube]]) -> None:
+    """
+    Build and cache a BVH for bounded primitives in the surfaces list.
+    Infinite planes are excluded and handled separately.
+    """
+    global _BVH_ROOT, _PLANE_SURFACES, _CACHED_SURFACES_ID
+
+    primitives: List[BVHPrimitive] = []
+    planes: List[InfinitePlane] = []
+    for surface in surfaces:
+        if isinstance(surface, InfinitePlane):
+            planes.append(surface)
+            continue
+        if isinstance(surface, (Sphere, Cube)):
+            bounds = surface.aabb()
+            primitives.append(BVHPrimitive(surface, bounds))
+
+    _BVH_ROOT = build_bvh(primitives)
+    _PLANE_SURFACES = planes
+    _CACHED_SURFACES_ID = id(surfaces)
+
+
+def _ensure_bvh(surfaces: List[Union[Sphere, InfinitePlane, Cube]]) -> None:
+    global _CACHED_SURFACES_ID
+    if _CACHED_SURFACES_ID != id(surfaces):
+        build_surface_bvh(surfaces)
+
 
 def find_closest_hit(
     ray: Ray,
     surfaces: List[Union[Sphere, InfinitePlane, Cube]],
+    max_distance: float = float("inf"),
 ) -> Hit | None:
-    """Find the closest intersection of ray with any surface."""
+    """Find the closest intersection of ray with any surface using the cached BVH."""
+    _ensure_bvh(surfaces)
+
     best_hit: Hit | None = None
-    for surface in surfaces:
-        hit = surface.intersect(ray)
+    if _BVH_ROOT is not None:
+        best_hit = _BVH_ROOT.intersect(ray, t_max=max_distance)
+        if best_hit is not None:
+            max_distance = min(max_distance, best_hit.t)
+
+    for plane in _PLANE_SURFACES:
+        hit = plane.intersect(ray)
         if hit is None:
             continue
-        if best_hit is None or hit.t < best_hit.t:
-            best_hit = hit
+        if hit.t >= max_distance:
+            continue
+        best_hit = hit
+        max_distance = hit.t
     return best_hit
 
 
@@ -47,7 +90,7 @@ def is_occluded(
         return False
     shadow_direction = to_light / distance_to_light
     shadow_ray = Ray(origin=shadow_origin, direction=shadow_direction)
-    shadow_hit = find_closest_hit(shadow_ray, surfaces)
+    shadow_hit = find_closest_hit(shadow_ray, surfaces, max_distance=distance_to_light)
     return shadow_hit is not None and shadow_hit.t < distance_to_light
 
 
