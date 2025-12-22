@@ -14,7 +14,7 @@ from surfaces.sphere import Sphere
 from enum import Enum
 from dataclasses import dataclass
 
-from utils.bvh import BVHNode, BVHPrimitive, build_bvh
+from utils.bvh import BVHNode, BVHPrimitive
 from utils.octree import Octree, OctreeConfig
 from utils.vector_operations import clamp_color01, color_to_uint8
 from utils.vector_operations import normalize_vector, vector_dot, reflect_vector, vector_cross, EPSILON
@@ -146,12 +146,14 @@ def find_closest_hit(
 def is_occluded(
     hit_point: np.ndarray,
     surface_normal: np.ndarray,
-    light_position: np.ndarray,
+    light: Light,
     surfaces: List[Union[Sphere, InfinitePlane, Cube]],
+    sample_position: np.ndarray | None = None,
 ) -> bool:
     """Check if a shadow ray from typings.hit_point toward light is blocked by any surface."""
     _PROFILE_COUNTERS["shadow_rays"] += 1
     shadow_origin = hit_point + surface_normal * EPSILON # to avoid shadow acne
+    light_position = light.position if sample_position is None else sample_position
     to_light = light_position - shadow_origin
     distance_to_light = float(np.linalg.norm(to_light))
     if distance_to_light < EPSILON: # we can immediately return not occluded if we're at the light source
@@ -175,7 +177,7 @@ def compute_soft_shadow_factor(
     """
     if shadow_rays_root <= 1 or light.radius <= EPSILON:
         # No soft shadows or point-light approximation.
-        if is_occluded(hit_point, surface_normal, light.position, surfaces):
+        if is_occluded(hit_point, surface_normal, light, surfaces):
             return 0.0
         return 1.0
 
@@ -217,7 +219,7 @@ def compute_soft_shadow_factor(
 
             sample_position = light.position + plane_u * (u_offset + u_jitter) + plane_v * (v_offset + v_jitter)
 
-            if not is_occluded(hit_point, surface_normal, sample_position, surfaces):
+            if not is_occluded(hit_point, surface_normal, light, surfaces, sample_position=sample_position):
                 unoccluded_count += 1
 
     return float(unoccluded_count) / float(total_rays)

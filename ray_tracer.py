@@ -1,4 +1,5 @@
 import argparse
+import math
 import time
 from PIL import Image
 import numpy as np
@@ -123,9 +124,11 @@ def shade(
     hit_point = best_hit.point
     surface_normal = best_hit.normal
     view_direction = normalize_vector(camera_position - hit_point)
-    effective_shadow_root = shadow_rays_root
-    if depth > 0 and shadow_rays_root > 1:
-        effective_shadow_root = max(1, shadow_rays_root // (2 ** depth))
+    light_count = max(1, len(lights))
+    light_scaled = max(1, int(math.ceil(shadow_rays_root / math.sqrt(light_count))))
+    effective_shadow_root = light_scaled
+    if depth > 0 and effective_shadow_root > 1:
+        effective_shadow_root = max(1, effective_shadow_root // (2 ** depth))
 
     # Local lighting with shadows
     local_color = np.zeros(3, dtype=float)
