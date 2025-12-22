@@ -54,9 +54,19 @@ class UniformGrid:
             # Degenerate grid: fall back to testing every primitive
             return self._brute_force(ray, max_distance, best_hit)
 
+        visited_primitives: set[int] = set()
+        current_t = start_t
+
         while self._inside_grid(cell_indices):
             cell_index = self._flatten_index(cell_indices)
+            next_axis = int(np.argmin(t_next))
+            cell_exit_t = float(t_next[next_axis])
+
             for primitive in self.cells[cell_index]:
+                primitive_id = id(primitive)
+                if primitive_id in visited_primitives:
+                    continue
+                visited_primitives.add(primitive_id)
                 hit = primitive.surface.intersect(ray)
                 if hit is None:
                     continue
@@ -64,11 +74,14 @@ class UniformGrid:
                     continue
                 if hit.t >= max_distance:
                     continue
+                if hit.t < current_t - EPSILON:
+                    continue
+                if hit.t > cell_exit_t + EPSILON:
+                    continue
                 best_hit = hit
                 max_distance = hit.t
 
-            next_axis = int(np.argmin(t_next))
-            next_t = float(t_next[next_axis])
+            next_t = cell_exit_t
             if best_hit is not None and best_hit.t <= next_t:
                 break
             if next_t > t_exit:
@@ -78,6 +91,7 @@ class UniformGrid:
             if not self._inside_grid(cell_indices):
                 break
             t_next[next_axis] += delta_t[next_axis]
+            current_t = next_t
 
         return best_hit
 
@@ -182,8 +196,13 @@ class UniformGrid:
 
     def _brute_force(self, ray: Ray, t_max: float, best_hit: Hit | None) -> Hit | None:
         max_distance = min(t_max, best_hit.t if best_hit else t_max)
+        visited_primitives: set[int] = set()
         for cell in self.cells:
             for primitive in cell:
+                primitive_id = id(primitive)
+                if primitive_id in visited_primitives:
+                    continue
+                visited_primitives.add(primitive_id)
                 hit = primitive.surface.intersect(ray)
                 if hit is None:
                     continue

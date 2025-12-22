@@ -13,10 +13,11 @@ from surfaces.infinite_plane import InfinitePlane
 from surfaces.sphere import Sphere
 from utils.shadow_utils import (
     AccelerationSettings,
-    AccelerationType,
     build_surface_acceleration,
     compute_soft_shadow_factor,
     find_closest_hit,
+    get_profile_counters,
+    reset_profile_counters,
 )
 from utils.vector_operations import clamp_color01, color_to_uint8
 from utils.vector_operations import normalize_vector, vector_dot, reflect_vector, vector_cross, EPSILON
@@ -25,6 +26,7 @@ from typings.hit import Hit
 from typings.ray import Ray
 
 SceneObject = Union[Material, Sphere, InfinitePlane, Cube, Light]
+MIN_RAY_WEIGHT: float = 1e-3
 
 
 def parse_scene_file(file_path: str) -> Tuple[Camera | None, SceneSettings | None, List[SceneObject]]:
@@ -97,6 +99,7 @@ def shade(
     shadow_rays_root: int,
     max_recursion: int,
     depth: int = 0,
+    ray_weight: float = 1.0,
 ) -> np.ndarray:
     """
     Recursive shading function.
@@ -120,6 +123,9 @@ def shade(
     hit_point = best_hit.point
     surface_normal = best_hit.normal
     view_direction = normalize_vector(camera_position - hit_point)
+    effective_shadow_root = shadow_rays_root
+    if depth > 0 and shadow_rays_root > 1:
+        effective_shadow_root = max(1, shadow_rays_root // (2 ** depth))
 
     # Local lighting with shadows
     local_color = np.zeros(3, dtype=float)
@@ -128,28 +134,33 @@ def shade(
         light_direction = normalize_vector(light.position - hit_point)
 
         # Diffuse component: kd * light_color * max(dot(N, L), 0)
-        n_dot_l = max(vector_dot(surface_normal, light_direction), 0.0)
+        n_dot_l = vector_dot(surface_normal, light_direction)
+        if n_dot_l <= 0.0:
+            continue
         diffuse = material.diffuse_color * light.color * n_dot_l
 
         # Specular component (Phong): ks * light_color * spec_intensity * max(dot(R, V), 0)^shininess
         reflect_direction = reflect_vector(-light_direction, surface_normal)
-        r_dot_v = max(vector_dot(reflect_direction, view_direction), 0.0)
-        specular = (
-            material.specular_color
-            * light.color
-            * light.specular_intensity
-            * (r_dot_v ** material.shininess)
-        )
+        r_dot_v = vector_dot(reflect_direction, view_direction)
+        specular = np.zeros(3, dtype=float)
+        if r_dot_v > 0.0:
+            specular = (
+                material.specular_color
+                * light.color
+                * light.specular_intensity
+                * (r_dot_v ** material.shininess)
+            )
 
         light_contribution = diffuse + specular
 
         # Apply soft shadow
-        shadow_factor = compute_soft_shadow_factor(
-            hit_point, surface_normal, light, surfaces, shadow_rays_root
-        )
-        # Light intensity multiplier: (1 - shadow_intensity) + shadow_intensity * p
-        shadow_multiplier = (1.0 - light.shadow_intensity) + light.shadow_intensity * shadow_factor
-        light_contribution *= shadow_multiplier
+        if light.shadow_intensity > 0.0:
+            shadow_factor = compute_soft_shadow_factor(
+                hit_point, surface_normal, light, surfaces, effective_shadow_root
+            )
+            # Light intensity multiplier: (1 - shadow_intensity) + shadow_intensity * p
+            shadow_multiplier = (1.0 - light.shadow_intensity) + light.shadow_intensity * shadow_factor
+            light_contribution *= shadow_multiplier
 
         local_color += light_contribution
 
@@ -158,7 +169,12 @@ def shade(
     # =========================
     reflection_term = np.zeros(3, dtype=float)
     reflection_color = material.reflection_color
-    if depth < max_recursion and np.any(reflection_color > EPSILON):
+    reflection_strength = float(np.max(reflection_color))
+    if (
+        depth < max_recursion
+        and reflection_strength > EPSILON
+        and ray_weight * reflection_strength > MIN_RAY_WEIGHT
+    ):
         reflect_dir = reflect_vector(ray.direction, surface_normal)
         reflect_origin = hit_point + surface_normal * EPSILON
         reflect_ray = Ray(origin=reflect_origin, direction=reflect_dir)
@@ -172,6 +188,7 @@ def shade(
             shadow_rays_root,
             max_recursion,
             depth + 1,
+            ray_weight * reflection_strength,
         )
         reflection_term = reflected_color * reflection_color
 
@@ -180,7 +197,7 @@ def shade(
     # =========================
     transparency = material.transparency
     behind_color = np.zeros(3, dtype=float)
-    if transparency > EPSILON and depth < max_recursion:
+    if transparency > EPSILON and depth < max_recursion and ray_weight * transparency > MIN_RAY_WEIGHT:
         # Continue ray forward through the surface
         transmit_origin = hit_point - surface_normal * EPSILON
         transmit_ray = Ray(origin=transmit_origin, direction=ray.direction)
@@ -194,6 +211,7 @@ def shade(
             shadow_rays_root,
             max_recursion,
             depth + 1,
+            ray_weight * transparency,
         )
 
     # =========================
@@ -216,11 +234,13 @@ def render_with_full_shading(
     width: int,
     height: int,
     accel_settings: AccelerationSettings | None = None,
+    build_accel: bool = True,
 ) -> np.ndarray:
     """Render the scene with full ray tracing: Phong shading, soft shadows, reflection, transparency."""
     image = np.zeros((height, width, 3), dtype=float)
     bg = np.asarray(background_color, dtype=float)
-    build_surface_acceleration(surfaces, accel_settings)
+    if build_accel:
+        build_surface_acceleration(surfaces, accel_settings)
 
     for i in range(height):
         for j in range(width):
@@ -326,19 +346,6 @@ def main() -> None:
     parser.add_argument('--width', type=int, default=500, help='Image width')
     parser.add_argument('--height', type=int, default=500, help='Image height')
     parser.add_argument(
-        '--accel',
-        type=str,
-        choices=[accel.value for accel in AccelerationType],
-        default=AccelerationType.BVH.value,
-        help='Acceleration structure to use for ray intersections (bvh, grid, octree)',
-    )
-    parser.add_argument(
-        '--grid-cells',
-        type=int,
-        default=64,
-        help='Maximum number of uniform grid cells per axis when --accel grid is selected',
-    )
-    parser.add_argument(
         '--octree-depth',
         type=int,
         default=8,
@@ -352,8 +359,12 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # Parse the scene file
+    def log_phase(label: str, seconds: float) -> None:
+        print(f"[phase] {label}: {seconds:.2f}s")
+
+    parse_start = time.perf_counter()
     camera, scene_settings, objects = parse_scene_file(args.scene_file)
+    log_phase("parse_scene", time.perf_counter() - parse_start)
 
     if camera is None:
         raise ValueError("Scene file is missing a camera ('cam' line)")
@@ -367,13 +378,17 @@ def main() -> None:
     lights: List[Light] = [obj for obj in objects if isinstance(obj, Light)]
 
     accel_settings = AccelerationSettings(
-        structure=AccelerationType(args.accel),
-        grid_cells=args.grid_cells,
         octree_max_depth=args.octree_depth,
         octree_leaf_size=args.octree_leaf_size,
     )
 
+    reset_profile_counters()
+    accel_start = time.perf_counter()
+    build_surface_acceleration(surfaces, accel_settings)
+    log_phase("build_accel", time.perf_counter() - accel_start)
+
     # Render with full ray tracing: Phong shading, soft shadows, reflection, transparency
+    render_start = time.perf_counter()
     image_array = render_with_full_shading(
         camera,
         surfaces,
@@ -385,8 +400,20 @@ def main() -> None:
         args.width,
         args.height,
         accel_settings,
+        build_accel=False,
     )
+    log_phase("render", time.perf_counter() - render_start)
+
+    save_start = time.perf_counter()
     save_image(image_array, args.output_image)
+    log_phase("save_image", time.perf_counter() - save_start)
+
+    counters = get_profile_counters()
+    print(
+        "[stats] rays={ray_intersections}, shadow_rays={shadow_rays}, shadow_samples={shadow_samples}".format(
+            **counters
+        )
+    )
 
 
 if __name__ == '__main__':

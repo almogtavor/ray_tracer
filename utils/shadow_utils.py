@@ -15,7 +15,6 @@ from enum import Enum
 from dataclasses import dataclass
 
 from utils.bvh import BVHNode, BVHPrimitive, build_bvh
-from utils.uniform_grid import GridConfig, UniformGrid
 from utils.octree import Octree, OctreeConfig
 from utils.vector_operations import clamp_color01, color_to_uint8
 from utils.vector_operations import normalize_vector, vector_dot, reflect_vector, vector_cross, EPSILON
@@ -23,24 +22,35 @@ from typings.hit import Hit
 from typings.ray import Ray
 
 class AccelerationType(str, Enum):
-    BVH = "bvh"
-    GRID = "grid"
     OCTREE = "octree"
 
 
 @dataclass(slots=True)
 class AccelerationSettings:
-    structure: AccelerationType = AccelerationType.BVH
-    grid_cells: int = 64
+    structure: AccelerationType = AccelerationType.OCTREE
     octree_max_depth: int = 8
     octree_leaf_size: int = 4
 
 
-_ACCELERATOR: BVHNode | UniformGrid | Octree | None = None
+_ACCELERATOR: BVHNode | Octree | None = None
 _PLANE_SURFACES: List[InfinitePlane] = []
 _CACHED_SURFACES_ID: int | None = None
 _CACHED_SETTINGS: AccelerationSettings | None = None
 _ACCEL_SETTINGS = AccelerationSettings()
+_PROFILE_COUNTERS = {
+    "ray_intersections": 0,
+    "shadow_rays": 0,
+    "shadow_samples": 0,
+}
+
+
+def reset_profile_counters() -> None:
+    for key in _PROFILE_COUNTERS:
+        _PROFILE_COUNTERS[key] = 0
+
+
+def get_profile_counters() -> dict:
+    return dict(_PROFILE_COUNTERS)
 
 
 def configure_acceleration(settings: AccelerationSettings) -> None:
@@ -74,25 +84,17 @@ def build_surface_acceleration(
 
     if not primitives:
         _ACCELERATOR = None
-    elif applied_settings.structure == AccelerationType.BVH:
-        _ACCELERATOR = build_bvh(primitives)
-    elif applied_settings.structure == AccelerationType.GRID:
-        grid_config = GridConfig(max_cells_per_axis=applied_settings.grid_cells)
-        _ACCELERATOR = UniformGrid(primitives, grid_config)
-    elif applied_settings.structure == AccelerationType.OCTREE:
+    else:
         octree_config = OctreeConfig(
             max_depth=applied_settings.octree_max_depth,
             max_primitives_per_leaf=applied_settings.octree_leaf_size,
         )
         _ACCELERATOR = Octree(primitives, octree_config)
-    else:
-        raise ValueError(f"Unknown acceleration structure: {applied_settings.structure}")
 
     _PLANE_SURFACES = planes
     _CACHED_SURFACES_ID = id(surfaces)
     _CACHED_SETTINGS = AccelerationSettings(
         structure=applied_settings.structure,
-        grid_cells=applied_settings.grid_cells,
         octree_max_depth=applied_settings.octree_max_depth,
         octree_leaf_size=applied_settings.octree_leaf_size,
     )
@@ -121,6 +123,7 @@ def find_closest_hit(
     max_distance: float = float("inf"),
 ) -> Hit | None:
     """Find the closest intersection of ray with any surface using the cached BVH."""
+    _PROFILE_COUNTERS["ray_intersections"] += 1
     _ensure_acceleration(surfaces)
 
     best_hit: Hit | None = None
@@ -147,6 +150,7 @@ def is_occluded(
     surfaces: List[Union[Sphere, InfinitePlane, Cube]],
 ) -> bool:
     """Check if a shadow ray from typings.hit_point toward light is blocked by any surface."""
+    _PROFILE_COUNTERS["shadow_rays"] += 1
     shadow_origin = hit_point + surface_normal * EPSILON # to avoid shadow acne
     to_light = light_position - shadow_origin
     distance_to_light = float(np.linalg.norm(to_light))
@@ -169,8 +173,8 @@ def compute_soft_shadow_factor(
     Computes the soft shadow fraction out of a NxN sampling grid on a plane that is perpendicular to the light direction.
     Returns the fraction of un-occluded rays (0.0 means fully shadowed wheares 1.0 means fully lit).
     """
-    if shadow_rays_root <= 0:
-        # No soft shadows, just check hard shadow
+    if shadow_rays_root <= 1 or light.radius <= EPSILON:
+        # No soft shadows or point-light approximation.
         if is_occluded(hit_point, surface_normal, light.position, surfaces):
             return 0.0
         return 1.0
@@ -202,6 +206,7 @@ def compute_soft_shadow_factor(
 
     for row in range(shadow_rays_root):
         for col in range(shadow_rays_root):
+            _PROFILE_COUNTERS["shadow_samples"] += 1
             # Cell center offset from typings.light center
             u_offset = -half_width + (col + 0.5) * cell_size
             v_offset = -half_width + (row + 0.5) * cell_size

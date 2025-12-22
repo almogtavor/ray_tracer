@@ -7,15 +7,9 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Acceleration structures
-The renderer now supports multiple spatial acceleration structures that can be selected at runtime:
-
-- `--accel bvh` (default) — classic bounding volume hierarchy.
-- `--accel grid` — uniform voxel grid with configurable resolution (`--grid-cells`).
-- `--accel octree` — adaptive octree with configurable max depth (`--octree-depth`) and leaf size (`--octree-leaf-size`).
-
-Example:
+## Acceleration structure
+The renderer always uses an adaptive octree for ray intersections. You can still tune its parameters:
 
 ```bash
-python ray_tracer.py scenes/example.scene results/example.png --accel grid --grid-cells 48
+python ray_tracer.py scenes/example.scene results/example.png --octree-depth 8 --octree-leaf-size 4
 ```
