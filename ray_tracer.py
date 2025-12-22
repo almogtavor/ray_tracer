@@ -167,9 +167,6 @@ def shade(
 
         local_color += light_contribution
 
-    # =========================
-    # Reflection
-    # =========================
     reflection_term = np.zeros(3, dtype=float)
     reflection_color = material.reflection_color
     reflection_strength = float(np.max(reflection_color))
@@ -195,9 +192,6 @@ def shade(
         )
         reflection_term = reflected_color * reflection_color
 
-    # =========================
-    # Transparency
-    # =========================
     transparency = material.transparency
     behind_color = np.zeros(3, dtype=float)
     if transparency > EPSILON and depth < max_recursion and ray_weight * transparency > MIN_RAY_WEIGHT:
@@ -217,10 +211,8 @@ def shade(
             ray_weight * transparency,
         )
 
-    # =========================
     # Final formula from spec:
     # out = behind * transparency + local * (1 - transparency) + reflection_term
-    # =========================
     final_color = behind_color * transparency + local_color * (1.0 - transparency) + reflection_term
 
     return final_color
