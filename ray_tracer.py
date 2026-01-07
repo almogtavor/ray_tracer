@@ -9,9 +9,7 @@ from surfaces.sphere import Sphere
 from typings.light import Light
 from utils.shadow_utils import (
     AccelerationSettings,
-    build_surface_acceleration,
-    get_profile_counters,
-    reset_profile_counters,
+    SceneAccelerator,
 )
 from scene_parser import parse_scene_file
 from renderer import render_with_full_shading, save_image
@@ -32,13 +30,11 @@ def main() -> None:
     parse_start = time.perf_counter()
     camera, scene_settings, objects = parse_scene_file(args.scene_file)
     print(f"[phase] parse_scene: {time.perf_counter() - parse_start:.2f}s")
-
     materials: List[Material] = [obj for obj in objects if isinstance(obj, Material)]
     surfaces: List[Union[Sphere, InfinitePlane, Cube]] = [
         obj for obj in objects if isinstance(obj, (Sphere, InfinitePlane, Cube))
     ]
     lights: List[Light] = [obj for obj in objects if isinstance(obj, Light)]
-
     accel_settings = AccelerationSettings(
         octree_max_depth=args.octree_depth,
         octree_leaf_size=args.octree_leaf_size,
@@ -46,9 +42,8 @@ def main() -> None:
         light_buffer_cells_per_face=args.light_buffer_resolution,
     )
 
-    reset_profile_counters()
     accel_start = time.perf_counter()
-    build_surface_acceleration(surfaces, accel_settings, lights)
+    accelerator = SceneAccelerator(surfaces, accel_settings, lights)
     print(f"[phase] build_accel: {time.perf_counter() - accel_start:.2f}s")
 
     render_start = time.perf_counter()
@@ -59,12 +54,13 @@ def main() -> None:
         scene_settings.max_recursions,
         args.width, args.height,
         accel_settings, build_accel=False,
+        accelerator=accelerator,
     )
     print(f"[phase] render: {time.perf_counter() - render_start:.2f}s")
 
     save_image(image, args.output_image)
 
-    cnt = get_profile_counters()
+    cnt = accelerator.counters
     msg = f"[stats] rays={cnt['ray_intersections']}, shadow_rays={cnt.get('shadow_rays',0)}, samples={cnt.get('shadow_samples',0)}"
     if cnt.get("light_buffer_hits", 0) > 0:
         avg = cnt["light_buffer_objects_tested"] / cnt["light_buffer_hits"]

@@ -12,9 +12,7 @@ from typings.hit import Hit
 from typings.ray import Ray
 from utils.shadow_utils import (
     AccelerationSettings,
-    build_surface_acceleration,
-    compute_soft_shadow_factor,
-    find_closest_hit,
+    SceneAccelerator,
 )
 from utils.vector_operations import (
     clamp_color01,
@@ -35,7 +33,7 @@ def save_image(image_array: np.ndarray, output_path: str) -> None:
 # Recursive shading with reflection + transparency
 def shade(
     ray: Ray,
-    surfaces: List[Union[Sphere, InfinitePlane, Cube]],
+    accelerator: SceneAccelerator,
     materials: List[Material],
     lights: List[Light],
     background_color: np.ndarray,
@@ -53,7 +51,7 @@ def shade(
     if depth > max_recursion:
         return background_color
 
-    best_hit = find_closest_hit(ray, surfaces)
+    best_hit = accelerator.find_closest_hit(ray)
 
     if best_hit is None:
         return background_color
@@ -99,8 +97,8 @@ def shade(
 
         # Apply soft shadow
         if light.shadow_intensity > 0.0:
-            shadow_factor = compute_soft_shadow_factor(
-                hit_point, surface_normal, light, surfaces, effective_shadow_root
+            shadow_factor = accelerator.compute_soft_shadow_factor(
+                hit_point, surface_normal, light, effective_shadow_root
             )
             # Light intensity multiplier: (1 - shadow_intensity) + shadow_intensity * p
             shadow_multiplier = (1.0 - light.shadow_intensity) + light.shadow_intensity * shadow_factor
@@ -121,7 +119,7 @@ def shade(
         reflect_ray = Ray(origin=reflect_origin, direction=reflect_dir)
         reflected_color = shade(
             reflect_ray,
-            surfaces,
+            accelerator,
             materials,
             lights,
             background_color,
@@ -141,7 +139,7 @@ def shade(
         transmit_ray = Ray(origin=transmit_origin, direction=ray.direction)
         behind_color = shade(
             transmit_ray,
-            surfaces,
+            accelerator,
             materials,
             lights,
             background_color,
@@ -171,19 +169,23 @@ def render_with_full_shading(
     height: int,
     accel_settings: AccelerationSettings | None = None,
     build_accel: bool = True,
+    accelerator: SceneAccelerator | None = None,
 ) -> np.ndarray:
     """Render the scene with full ray tracing: Phong shading, soft shadows, reflection, transparency."""
     image = np.zeros((height, width, 3), dtype=float)
     bg = np.asarray(background_color, dtype=float)
-    if build_accel:
-        build_surface_acceleration(surfaces, accel_settings, lights)
+    
+    if accelerator is None:
+        if accel_settings is None:
+            accel_settings = AccelerationSettings()
+        accelerator = SceneAccelerator(surfaces, accel_settings, lights)
 
     for i in range(height):
         for j in range(width):
             ray = camera.generate_ray(i, j, width, height)
             color = shade(
                 ray,
-                surfaces,
+                accelerator,
                 materials,
                 lights,
                 bg,
@@ -195,6 +197,7 @@ def render_with_full_shading(
             image[i, j, :] = color
 
     return clamp_color01(image)
+
 
 
 def compute_phong_shading(
@@ -241,22 +244,19 @@ def render_with_phong_shading(
     background_color: np.ndarray,
     width: int,
     height: int,
+    accelerator: SceneAccelerator | None = None,
 ) -> np.ndarray:
     """Render the scene with Phong shading (diffuse + specular). No shadows yet."""
     image = np.zeros((height, width, 3), dtype=float)
     bg = np.asarray(background_color, dtype=float)
+    
+    if accelerator is None:
+        accelerator = SceneAccelerator(surfaces, AccelerationSettings(), lights)
 
     for i in range(height):
         for j in range(width):
             ray = camera.generate_ray(i, j, width, height)
-
-            best_hit: Hit | None = None
-            for surface in surfaces:
-                hit = surface.intersect(ray)
-                if hit is None:
-                    continue
-                if best_hit is None or hit.t < best_hit.t:
-                    best_hit = hit
+            best_hit = accelerator.find_closest_hit(ray)
 
             if best_hit is None:
                 image[i, j, :] = bg
