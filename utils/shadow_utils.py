@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 from utils.bvh import BVHNode, BVHPrimitive
 from utils.octree import Octree, OctreeConfig
+from utils.light_buffer import LightBuffer, LightBufferConfig
 from utils.vector_operations import clamp_color01, color_to_uint8
 from utils.vector_operations import normalize_vector, vector_dot, reflect_vector, vector_cross, EPSILON
 from typings.hit import Hit
@@ -30,10 +31,13 @@ class AccelerationSettings:
     structure: AccelerationType = AccelerationType.OCTREE
     octree_max_depth: int = 8
     octree_leaf_size: int = 4
+    use_light_buffer: bool = True  # Enable light buffer for shadow ray acceleration
+    light_buffer_cells_per_face: int = 16
 
 
 _ACCELERATOR: BVHNode | Octree | None = None
 _PLANE_SURFACES: List[InfinitePlane] = []
+_LIGHT_BUFFERS: dict[int, LightBuffer] = {}  # Maps light id() to LightBuffer
 _CACHED_SURFACES_ID: int | None = None
 _CACHED_SETTINGS: AccelerationSettings | None = None
 _ACCEL_SETTINGS = AccelerationSettings()
@@ -41,6 +45,8 @@ _PROFILE_COUNTERS = {
     "ray_intersections": 0,
     "shadow_rays": 0,
     "shadow_samples": 0,
+    "light_buffer_hits": 0,
+    "light_buffer_objects_tested": 0,
 }
 
 
@@ -61,12 +67,16 @@ def configure_acceleration(settings: AccelerationSettings) -> None:
 def build_surface_acceleration(
     surfaces: List[Union[Sphere, InfinitePlane, Cube]],
     settings: AccelerationSettings | None = None,
+    lights: List[Light] | None = None,
 ) -> None:
     """
     Build and cache the selected acceleration structure for bounded primitives.
     Infinite planes are excluded and handled separately.
+
+    If lights are provided and light buffers are enabled, also builds light buffers
+    for shadow ray acceleration.
     """
-    global _ACCELERATOR, _PLANE_SURFACES, _CACHED_SURFACES_ID, _CACHED_SETTINGS
+    global _ACCELERATOR, _PLANE_SURFACES, _LIGHT_BUFFERS, _CACHED_SURFACES_ID, _CACHED_SETTINGS
 
     if settings is not None:
         configure_acceleration(settings)
@@ -92,11 +102,23 @@ def build_surface_acceleration(
         _ACCELERATOR = Octree(primitives, octree_config)
 
     _PLANE_SURFACES = planes
+
+    # Build light buffers if enabled and lights provided
+    _LIGHT_BUFFERS = {}
+    if applied_settings.use_light_buffer and lights is not None:
+        light_buffer_config = LightBufferConfig(
+            cells_per_face=applied_settings.light_buffer_cells_per_face
+        )
+        for light in lights:
+            _LIGHT_BUFFERS[id(light)] = LightBuffer(light, surfaces, light_buffer_config)
+
     _CACHED_SURFACES_ID = id(surfaces)
     _CACHED_SETTINGS = AccelerationSettings(
         structure=applied_settings.structure,
         octree_max_depth=applied_settings.octree_max_depth,
         octree_leaf_size=applied_settings.octree_leaf_size,
+        use_light_buffer=applied_settings.use_light_buffer,
+        light_buffer_cells_per_face=applied_settings.light_buffer_cells_per_face,
     )
 
 
@@ -160,6 +182,23 @@ def is_occluded(
         return False
     shadow_direction = to_light / distance_to_light
     shadow_ray = Ray(origin=shadow_origin, direction=shadow_direction)
+
+    use_light_buffer = sample_position is None
+    if use_light_buffer:
+        light_id = id(light)
+        if light_id in _LIGHT_BUFFERS:
+            _PROFILE_COUNTERS["light_buffer_hits"] += 1
+            light_buffer = _LIGHT_BUFFERS[light_id]
+            candidate_surfaces = light_buffer.query(hit_point)
+            _PROFILE_COUNTERS["light_buffer_objects_tested"] += len(candidate_surfaces)
+
+            # Test only candidate surfaces from light buffer
+            for surface in candidate_surfaces:
+                hit = surface.intersect(shadow_ray)
+                if hit is not None and EPSILON < hit.t < distance_to_light:
+                    return True
+            return False
+
     shadow_hit = find_closest_hit(shadow_ray, surfaces, max_distance=distance_to_light)
     return shadow_hit is not None and shadow_hit.t < distance_to_light
 
@@ -191,33 +230,41 @@ def compute_soft_shadow_factor(
 
     # Build orthonormal basis on the plane perpendicular to light_direction
     # Find a vector not parallel to light_direction
+    from utils.vector_operations import UNIT_X, UNIT_Y
     if abs(light_direction[0]) < 0.9:
-        up = np.array([1.0, 0.0, 0.0])
+        up = UNIT_X
     else:
-        up = np.array([0.0, 1.0, 0.0])
+        up = UNIT_Y
 
     plane_u = normalize_vector(vector_cross(light_direction, up))
     plane_v = vector_cross(light_direction, plane_u)
 
-    # Rectangle centered at light with width = light.radius
-    half_width = light.radius / 2.0
-    cell_size = light.radius / shadow_rays_root
-
     unoccluded_count = 0
-    total_rays = shadow_rays_root * shadow_rays_root
+    
+    # We use Stratified Sampling (Jittering) on a grid to avoid banding artifacts.
+    # We treat light.radius as the width of the square light source.
+    # Grid size is shadow_rays_root x shadow_rays_root.
+    
+    grid_size = shadow_rays_root
+    total_rays = grid_size * grid_size
+    step_size = light.radius / grid_size
+    
+    # Start from bottom-left corner of the light square (centered at light.position)
+    start_u = -light.radius / 2.0
+    start_v = -light.radius / 2.0
 
-    for row in range(shadow_rays_root):
-        for col in range(shadow_rays_root):
+    for i in range(grid_size):
+        for j in range(grid_size):
             _PROFILE_COUNTERS["shadow_samples"] += 1
-            # Cell center offset from typings.light center
-            u_offset = -half_width + (col + 0.5) * cell_size
-            v_offset = -half_width + (row + 0.5) * cell_size
+            
+            # Random offset within the grid cell [0, 1)
+            r1 = np.random.random()
+            r2 = np.random.random()
+            
+            u_offset = start_u + (i + r1) * step_size
+            v_offset = start_v + (j + r2) * step_size
 
-            # Add random jitter within cell
-            u_jitter = (np.random.random() - 0.5) * cell_size
-            v_jitter = (np.random.random() - 0.5) * cell_size
-
-            sample_position = light.position + plane_u * (u_offset + u_jitter) + plane_v * (v_offset + v_jitter)
+            sample_position = light.position + plane_u * u_offset + plane_v * v_offset
 
             if not is_occluded(hit_point, surface_normal, light, surfaces, sample_position=sample_position):
                 unoccluded_count += 1

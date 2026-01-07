@@ -4,38 +4,35 @@ import numpy as np
 
 EPSILON: float = 1e-5 # As disscussed in the lecture - small epsilon value for floating point comparisons (to handle edge cases in vector normalization)
 
+# Constant unit vectors to avoid allocations
+UNIT_X = np.array([1.0, 0.0, 0.0], dtype=float)
+UNIT_Y = np.array([0.0, 1.0, 0.0], dtype=float)
+UNIT_Z = np.array([0.0, 0.0, 1.0], dtype=float)
+
 
 def vector_length(v: np.ndarray) -> float: #Euclidean length (magnitude) of a vector
-    vector_array = np.asarray(v, dtype=float)
-    return float(np.linalg.norm(vector_array))
+    return float(np.linalg.norm(v))
 
 
 def normalize_vector(v: np.ndarray) -> np.ndarray:
-    vector_array = np.asarray(v, dtype=float)
-    magnitude = np.linalg.norm(vector_array)
+    magnitude = np.linalg.norm(v)
     if magnitude < EPSILON:
         raise ValueError("Cannot normalize near-zero vector")
-    return vector_array / magnitude
+    return v / magnitude
 
 
 def vector_dot(a: np.ndarray, b: np.ndarray) -> float:
-    vector_a = np.asarray(a, dtype=float)
-    vector_b = np.asarray(b, dtype=float)
-    return float(np.dot(vector_a, vector_b))
+    return float(np.dot(a, b))
 
 
 def vector_cross(a: np.ndarray, b: np.ndarray) -> np.ndarray: #cross product of two vectors (3D)
-    vector_a = np.asarray(a, dtype=float)
-    vector_b = np.asarray(b, dtype=float)
-    return np.cross(vector_a, vector_b)
+    return np.cross(a, b)
 
 
 def reflect_vector(I: np.ndarray, N: np.ndarray) -> np.ndarray:
     """Calculates the reflection vector R given the incident vector I and surface normal N.
        Assumes I points toward the surface"""
-    vector_I = np.asarray(I, dtype=float)
-    vector_N = np.asarray(N, dtype=float)
-    return vector_I - 2.0 * vector_dot(vector_I, vector_N) * vector_N
+    return I - 2.0 * np.dot(I, N) * N
 
 
 def clamp_color01(color_rgb: np.ndarray) -> np.ndarray:

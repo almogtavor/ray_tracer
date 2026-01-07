@@ -38,7 +38,7 @@ class Camera:
         screen_height = self.screen_width * (float(H) / float(W))
 
         # coordinates on the camera’s image plane (u is horizontal left&right, and v vertical for up&down)
-        u = ((float(j) + 0.5) / float(W) - 0.5) * self.screen_width
+        u = (0.5 - (float(j) + 0.5) / float(W)) * self.screen_width
         v = (0.5 - (float(i) + 0.5) / float(H)) * screen_height
 
         pixel_point = screen_center + self.right * u + self.true_up * v
