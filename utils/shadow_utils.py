@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from utils.bvh import BVHPrimitive
 from utils.octree import Octree, OctreeConfig
 from utils.light_buffer import LightBuffer, LightBufferConfig
-from utils.vector_operations import normalize_vector, vector_dot, vector_cross, reflect_vector, EPSILON
+from utils.vector_operations import normalize_vector, vector_dot, vector_cross, reflect_vector, EPSILON, UNIT_X, UNIT_Y
 from typings.hit import Hit
 from typings.ray import Ray
 from typings.light import Light
@@ -124,9 +124,9 @@ class SceneAccelerator:
         light: Light,
         shadow_rays_root: int,
     ) -> float:
-        if shadow_rays_root <= 1 or light.radius <= EPSILON:
+        # Only point lights should use hard shadows
+        if light.radius <= EPSILON:
             return 0.0 if self.is_occluded(hit_point, surface_normal, light) else 1.0
-
         light_to_point = hit_point - light.position
         dist = float(np.linalg.norm(light_to_point))
         if dist < EPSILON:
@@ -135,7 +135,6 @@ class SceneAccelerator:
         light_dir = light_to_point / dist
 
         # Orthonormal basis
-        from utils.vector_operations import UNIT_X, UNIT_Y
         up = UNIT_X if abs(light_dir[0]) < 0.9 else UNIT_Y
         plane_u = normalize_vector(vector_cross(light_dir, up))
         plane_v = vector_cross(light_dir, plane_u)
