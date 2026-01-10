@@ -12,7 +12,6 @@ from surfaces.sphere import Sphere
 from typings.hit import Hit
 from typings.ray import Ray
 from utils.shadow_utils import (
-    AccelerationSettings,
     SceneAccelerator,
 )
 from utils.vector_operations import (
