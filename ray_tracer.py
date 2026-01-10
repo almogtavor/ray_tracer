@@ -53,8 +53,9 @@ def main() -> None:
         scene_settings.root_number_shadow_rays,
         scene_settings.max_recursions,
         args.width, args.height,
-        accel_settings, build_accel=False,
         accelerator=accelerator,
+        accel_settings=accel_settings,
+        build_accel=False,
     )
     print(f"[phase] render: {time.perf_counter() - render_start:.2f}s")
 

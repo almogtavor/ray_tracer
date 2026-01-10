@@ -97,6 +97,7 @@ def shade(
 
         # Apply soft shadow
         if light.shadow_intensity > 0.0:
+            # Use full transmission-based soft shadowing for all surfaces
             shadow_factor = accelerator.compute_soft_shadow_factor(
                 hit_point, surface_normal, light, effective_shadow_root
             )
@@ -135,7 +136,7 @@ def shade(
     behind_color = np.zeros(3, dtype=float)
     if transparency > EPSILON and depth < max_recursion and ray_weight * transparency > MIN_RAY_WEIGHT:
         # Continue ray forward through the surface
-        transmit_origin = hit_point - surface_normal * EPSILON
+        transmit_origin = hit_point + ray.direction * EPSILON
         transmit_ray = Ray(origin=transmit_origin, direction=ray.direction)
         behind_color = shade(
             transmit_ray,
@@ -167,19 +168,14 @@ def render_with_full_shading(
     max_recursion: int,
     width: int,
     height: int,
-    accel_settings: AccelerationSettings | None = None,
+    accelerator: SceneAccelerator,
+    accel_settings: AccelerationSettings,
     build_accel: bool = True,
-    accelerator: SceneAccelerator | None = None,
 ) -> np.ndarray:
     """Render the scene with full ray tracing: Phong shading, soft shadows, reflection, transparency."""
     image = np.zeros((height, width, 3), dtype=float)
     bg = np.asarray(background_color, dtype=float)
     
-    if accelerator is None:
-        if accel_settings is None:
-            accel_settings = AccelerationSettings()
-        accelerator = SceneAccelerator(surfaces, accel_settings, lights)
-
     for i in range(height):
         for j in range(width):
             ray = camera.generate_ray(i, j, width, height)

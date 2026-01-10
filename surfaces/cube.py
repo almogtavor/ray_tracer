@@ -11,6 +11,8 @@ class Cube:
         self.position: np.ndarray = np.asarray(position, dtype=float)
         self.scale: float = float(scale)
         self.material_index: int = int(material_index)
+        if abs(self.position[1] - 0.5 * self.scale) < EPSILON:
+            self.position[1] += 2 * EPSILON
 
     def aabb(self) -> AABB:
         half_scale = 0.5 * self.scale
