@@ -50,9 +50,7 @@ def shade(
     """
     if depth > max_recursion:
         return background_color
-
     best_hit = accelerator.find_closest_hit(ray)
-
     if best_hit is None:
         return background_color
 
@@ -95,14 +93,13 @@ def shade(
                 * light.specular_intensity
                 * (r_dot_v ** material.shininess)
             )
-
         light_contribution = diffuse + specular
 
         # Apply soft shadow
         if light.shadow_intensity > 0.0:
             # Use full transmission-based soft shadowing for all surfaces
             shadow_factor = accelerator.compute_soft_shadow_factor(
-                hit_point, surface_normal, light, effective_shadow_root
+                hit_point, N, light, effective_shadow_root
             )
             # Light intensity multiplier: (1 - shadow_intensity) + shadow_intensity * p
             shadow_multiplier = (1.0 - light.shadow_intensity) + light.shadow_intensity * shadow_factor

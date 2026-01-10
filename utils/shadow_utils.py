@@ -91,15 +91,19 @@ class SceneAccelerator:
         sample_position: np.ndarray | None = None,
     ) -> bool:
         self.counters["shadow_rays"] += 1
-        shadow_origin = hit_point + surface_normal * EPSILON
         light_pos = light.position if sample_position is None else sample_position
-        to_light = light_pos - shadow_origin
+        to_light = light_pos - hit_point
         dist = float(np.linalg.norm(to_light))
-
         if dist < EPSILON:
             return False
+        dir_to_light = to_light / dist
+        # Offset along the normal on the same side as the shadow ray
+        n = surface_normal
+        if vector_dot(n, dir_to_light) < 0.0:
+            n = -n
+        shadow_origin = hit_point + n * (10.0 * EPSILON)
 
-        shadow_ray = Ray(origin=shadow_origin, direction=to_light / dist)
+        shadow_ray = Ray(origin=shadow_origin, direction=dir_to_light)
 
         # Light Buffer check
         if sample_position is None:
@@ -131,7 +135,6 @@ class SceneAccelerator:
         dist = float(np.linalg.norm(light_to_point))
         if dist < EPSILON:
             return 1.0
-
         light_dir = light_to_point / dist
 
         # Orthonormal basis
@@ -140,17 +143,16 @@ class SceneAccelerator:
         plane_v = vector_cross(light_dir, plane_u)
 
         unoccluded = 0
-        step = light.radius / shadow_rays_root
-        start_u = start_v = -light.radius / 2.0
-
+        extent = light.radius
+        step = (2.0 * extent) / shadow_rays_root
+        start_u = start_v = -extent
         for i in range(shadow_rays_root):
             for j in range(shadow_rays_root):
                 self.counters["shadow_samples"] += 1
-                u_off = start_u + (i + np.random.random()) * step
-                v_off = start_v + (j + np.random.random()) * step
+                u_off = start_u + (i + np.random.uniform(low=0.0, high=0.5)) * step
+                v_off = start_v + (j + np.random.uniform(low=0.0, high=0.5)) * step
                 sample_pos = light.position + plane_u * u_off + plane_v * v_off
                 if not self.is_occluded(hit_point, surface_normal, light, sample_pos):
                     unoccluded += 1
-
         return float(unoccluded) / (shadow_rays_root * shadow_rays_root)
 
