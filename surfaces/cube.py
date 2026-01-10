@@ -2,7 +2,7 @@ import numpy as np
 
 from typings.hit import Hit
 from typings.ray import Ray
-from utils.bvh import AABB
+from utils.spatial_structures import AABB
 from utils.vector_operations import EPSILON, vector_dot
 
 

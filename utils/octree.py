@@ -7,7 +7,7 @@ import numpy as np
 
 from typings.hit import Hit
 from typings.ray import Ray
-from utils.bvh import AABB, BVHPrimitive
+from utils.spatial_structures import AABB, Primitive
 from utils.vector_operations import EPSILON
 
 
@@ -31,12 +31,12 @@ class OctreeNode:
     def __init__(
         self,
         bounds: AABB,
-        primitives: Sequence[BVHPrimitive],
+        primitives: Sequence[Primitive],
         depth: int,
         config: OctreeConfig,
     ) -> None:
         self.bounds = bounds
-        self.primitives: List[BVHPrimitive] = []
+        self.primitives: List[Primitive] = []
         self.children: List[OctreeNode] = []
 
         should_split = (
@@ -49,8 +49,8 @@ class OctreeNode:
             return
 
         child_bounds = self._subdivide(bounds)
-        child_buckets: List[List[BVHPrimitive]] = [[] for _ in range(8)]
-        stay_primitives: List[BVHPrimitive] = []
+        child_buckets: List[List[Primitive]] = [[] for _ in range(8)]
+        stay_primitives: List[Primitive] = []
 
         for primitive in primitives:
             overlapping = [
@@ -151,7 +151,7 @@ class OctreeNode:
 
 
 class Octree:
-    def __init__(self, primitives: Sequence[BVHPrimitive], config: OctreeConfig | None = None) -> None:
+    def __init__(self, primitives: Sequence[Primitive], config: OctreeConfig | None = None) -> None:
         if not primitives:
             raise ValueError("Octree requires at least one primitive")
         self.config = config or OctreeConfig()

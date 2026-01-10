@@ -68,7 +68,6 @@ class LightBuffer:
 
         # Sample a 3x3 grid within each cell for better coverage
         samples_per_cell = 3
-
         for face_idx in range(6):
             for u_idx in range(self.cells_per_face):
                 for v_idx in range(self.cells_per_face):
@@ -77,7 +76,6 @@ class LightBuffer:
                     # Collect all unique objects visible through this cell
                     visible_object_ids = set()
                     visible_objects_map = {}
-
                     # Sample multiple directions within the cell
                     for su in range(samples_per_cell):
                         for sv in range(samples_per_cell):
@@ -101,7 +99,6 @@ class LightBuffer:
                     # Store sorted by distance (closest first)
                     visible_objects = list(visible_objects_map.values())
                     self.cells[cell_idx] = sorted(visible_objects, key=lambda e: e.distance)
-
                     # Limit to max_objects_per_cell
                     if len(self.cells[cell_idx]) > self.config.max_objects_per_cell:
                         self.cells[cell_idx] = self.cells[cell_idx][:self.config.max_objects_per_cell]

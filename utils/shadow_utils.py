@@ -4,7 +4,7 @@ from typing import List, Union, Dict
 from enum import Enum
 from dataclasses import dataclass
 
-from utils.bvh import BVHPrimitive
+from utils.spatial_structures import Primitive
 from utils.octree import Octree, OctreeConfig
 from utils.light_buffer import LightBuffer, LightBufferConfig
 from utils.vector_operations import normalize_vector, vector_dot, vector_cross, reflect_vector, EPSILON, UNIT_X, UNIT_Y
@@ -46,12 +46,12 @@ class SceneAccelerator:
             "light_buffer_objects_tested": 0,
         }
 
-        primitives: List[BVHPrimitive] = []
+        primitives: List[Primitive] = []
         for surface in surfaces:
             if isinstance(surface, InfinitePlane):
                 self.planes.append(surface)
             elif isinstance(surface, (Sphere, Cube)):
-                primitives.append(BVHPrimitive(surface, surface.aabb()))
+                primitives.append(Primitive(surface, surface.aabb()))
 
         if not primitives:
             self.spatial_accelerator = None
@@ -91,19 +91,13 @@ class SceneAccelerator:
         sample_position: np.ndarray | None = None,
     ) -> bool:
         self.counters["shadow_rays"] += 1
+        shadow_origin = hit_point + surface_normal * EPSILON
         light_pos = light.position if sample_position is None else sample_position
-        to_light = light_pos - hit_point
+        to_light = light_pos - shadow_origin
         dist = float(np.linalg.norm(to_light))
         if dist < EPSILON:
             return False
-        dir_to_light = to_light / dist
-        # Offset along the normal on the same side as the shadow ray
-        n = surface_normal
-        if vector_dot(n, dir_to_light) < 0.0:
-            n = -n
-        shadow_origin = hit_point + n * (10.0 * EPSILON)
-
-        shadow_ray = Ray(origin=shadow_origin, direction=dir_to_light)
+        shadow_ray = Ray(origin=shadow_origin, direction=to_light / dist)
 
         # Light Buffer check
         if sample_position is None:
@@ -143,9 +137,8 @@ class SceneAccelerator:
         plane_v = vector_cross(light_dir, plane_u)
 
         unoccluded = 0
-        extent = light.radius
-        step = (2.0 * extent) / shadow_rays_root
-        start_u = start_v = -extent
+        step = light.radius / shadow_rays_root
+        start_u = start_v = -light.radius / 2.0
         for i in range(shadow_rays_root):
             for j in range(shadow_rays_root):
                 self.counters["shadow_samples"] += 1

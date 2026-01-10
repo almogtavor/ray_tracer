@@ -1,5 +1,6 @@
 from typing import List, Union
 import numpy as np
+from multiprocessing.pool import ThreadPool
 from PIL import Image
 
 from camera import Camera
@@ -28,6 +29,43 @@ MIN_RAY_WEIGHT: float = 1e-3
 def save_image(image_array: np.ndarray, output_path: str) -> None:
     image = Image.fromarray(color_to_uint8(image_array))
     image.save(output_path)
+
+def compute_local_lighting(
+    material: Material,
+    lights: List[Light],
+    accelerator: SceneAccelerator,
+    hit_point: np.ndarray,
+    surface_normal: np.ndarray,
+    shading_normal: np.ndarray,
+    view_direction: np.ndarray,
+    effective_shadow_root: int,
+) -> np.ndarray:
+    local_color = np.zeros(3, dtype=float)
+    for light in lights:
+        light_direction = normalize_vector(light.position - hit_point)
+        n_dot_l = vector_dot(shading_normal, light_direction)
+        if n_dot_l <= 0.0:
+            continue
+        diffuse = material.diffuse_color * light.color * n_dot_l
+        reflect_direction = reflect_vector(-light_direction, surface_normal)
+        r_dot_v = vector_dot(reflect_direction, view_direction)
+        specular = np.zeros(3, dtype=float)
+        if r_dot_v > 0.0:
+            specular = (
+                material.specular_color
+                * light.color
+                * light.specular_intensity
+                * (r_dot_v ** material.shininess)
+            )
+        light_contribution = diffuse + specular
+        if light.shadow_intensity > 0.0:
+            shadow_factor = accelerator.compute_soft_shadow_factor(
+                hit_point, shading_normal, light, effective_shadow_root
+            )
+            shadow_multiplier = (1.0 - light.shadow_intensity) + light.shadow_intensity * shadow_factor
+            light_contribution *= shadow_multiplier
+        local_color += light_contribution
+    return local_color
 
 
 # Recursive shading with reflection + transparency
@@ -71,41 +109,16 @@ def shade(
     if depth > 0 and effective_shadow_root > 1:
         effective_shadow_root = max(1, effective_shadow_root // (2 ** depth))
 
-    # Local lighting with shadows
-    local_color = np.zeros(3, dtype=float)
-    for light in lights:
-        light_direction = normalize_vector(light.position - hit_point)
-
-        # Diffuse component: kd * light_color * max(dot(N, L), 0)
-        n_dot_l = vector_dot(N, light_direction)
-        if n_dot_l <= 0.0:
-            continue
-        diffuse = material.diffuse_color * light.color * n_dot_l
-
-        # Specular component (Phong): ks * light_color * spec_intensity * max(dot(R, V), 0)^shininess
-        reflect_direction = reflect_vector(-light_direction, surface_normal)
-        r_dot_v = vector_dot(reflect_direction, view_direction)
-        specular = np.zeros(3, dtype=float)
-        if r_dot_v > 0.0:
-            specular = (
-                material.specular_color
-                * light.color
-                * light.specular_intensity
-                * (r_dot_v ** material.shininess)
-            )
-        light_contribution = diffuse + specular
-
-        # Apply soft shadow
-        if light.shadow_intensity > 0.0:
-            # Use full transmission-based soft shadowing for all surfaces
-            shadow_factor = accelerator.compute_soft_shadow_factor(
-                hit_point, N, light, effective_shadow_root
-            )
-            # Light intensity multiplier: (1 - shadow_intensity) + shadow_intensity * p
-            shadow_multiplier = (1.0 - light.shadow_intensity) + light.shadow_intensity * shadow_factor
-            light_contribution *= shadow_multiplier
-
-        local_color += light_contribution
+    local_color = compute_local_lighting(
+        material,
+        lights,
+        accelerator,
+        hit_point,
+        surface_normal,
+        N,
+        view_direction,
+        effective_shadow_root,
+    )
 
     reflection_term = np.zeros(3, dtype=float)
     reflection_color = material.reflection_color
@@ -155,7 +168,6 @@ def shade(
 
 def render_with_full_shading(
     camera: Camera,
-    surfaces: List[Union[Sphere, InfinitePlane, Cube]],
     materials: List[Material],
     lights: List[Light],
     background_color: np.ndarray,
@@ -164,13 +176,10 @@ def render_with_full_shading(
     width: int,
     height: int,
     accelerator: SceneAccelerator,
-    accel_settings: AccelerationSettings,
-    build_accel: bool = True,
 ) -> np.ndarray:
     """Render the scene with full ray tracing: Phong shading, soft shadows, reflection, transparency."""
     image = np.zeros((height, width, 3), dtype=float)
     bg = np.asarray(background_color, dtype=float)
-    
     for i in range(height):
         for j in range(width):
             ray = camera.generate_ray(i, j, width, height)
@@ -186,5 +195,4 @@ def render_with_full_shading(
                 depth=0,
             )
             image[i, j, :] = color
-
     return clamp_color01(image)
